@@ -1,21 +1,10 @@
-import streamlit as st
+mport streamlit as st
 import pandas as pd
 import numpy as np
 from io import BytesIO
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
-
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.units import inch
-
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
 
 st.set_page_config(page_title="RAB7A - Food Distribution Intelligence", page_icon="📊", layout="wide")
 
@@ -44,7 +33,6 @@ st.sidebar.markdown("- Supplier Profitability")
 st.sidebar.markdown("- Channel Analysis")
 st.sidebar.markdown("- Salesman Performance")
 st.sidebar.markdown("- P&L Monthly")
-st.sidebar.markdown("- Purchase Orders")
 
 st.markdown("### 📤 Upload Your Sales Transaction Data")
 uploaded_file = st.file_uploader("Drop your Excel/CSV file here", type=['xlsx', 'xls', 'csv'])
@@ -61,8 +49,6 @@ def process_data(df):
         df['Line Cost'] = df['Qty'] * df['Unit Cost']
     if 'Gross Profit' not in df.columns or df['Gross Profit'].sum() == 0:
         df['Gross Profit'] = df['Line Sales'] - df['Line Cost']
-    if 'GM%' not in df.columns or df['GM%'].sum() == 0:
-        df['GM%'] = np.where(df['Line Sales'] != 0, df['Gross Profit'] / df['Line Sales'], 0)
     if 'Sale_Sales' not in df.columns:
         df['Sale_Sales'] = df['Line Sales']
         df['Return_Sales'] = 0
@@ -198,57 +184,6 @@ def generate_pl_monthly(df):
     pl['GM %'] = np.where(pl['Line Sales'] != 0, pl['Gross Profit'] / pl['Line Sales'], 0)
     return pl.sort_values('Line Sales', ascending=False)
 
-def generate_purchase_orders(df):
-    po = df.groupby(['Supplier', 'Item']).agg({'Qty': 'sum', 'Line Cost': 'sum', 'Line Sales': 'sum'}).reset_index()
-    po['Avg Cost'] = np.where(po['Qty'] != 0, po['Line Cost'] / po['Qty'], 0)
-    return po.sort_values('Line Cost', ascending=False).head(50)
-
-def generate_pdf_report(summary, customer_df, product_df, supplier_df, channel_df, salesman_df):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=28, textColor=colors.HexColor('#1a1a2e'), alignment=TA_CENTER, spaceAfter=20)
-    section_style = ParagraphStyle('Section', parent=styles['Heading2'], fontSize=16, textColor=colors.HexColor('#667eea'), spaceAfter=12, spaceBefore=20)
-    story = []
-    story.append(Paragraph("RAB7A", title_style))
-    story.append(Paragraph("Executive Intelligence Report", ParagraphStyle('Sub', parent=styles['Normal'], fontSize=14, alignment=TA_CENTER, spaceAfter=30)))
-    story.append(Paragraph(f"Generated: {datetime.now().strftime('%d %b %Y')}", ParagraphStyle('Date', parent=styles['Normal'], fontSize=10, alignment=TA_CENTER, textColor=colors.grey)))
-    story.append(Spacer(1, 30))
-    story.append(Paragraph("EXECUTIVE SUMMARY", section_style))
-    summary_data = [['Metric', 'Value'], ['Total Sales', f"{summary['Total Sales']:,.2f} QAR"], ['Total Gross Profit', f"{summary['Total GP']:,.2f} QAR"], ['Overall GM %', f"{summary['Overall GM %']*100:.2f}%"], ['Cash Used', f"{summary['Cash Used']:,.2f} QAR"], ['Transactions', f"{summary['Transactions']:,}"], ['Customers', f"{summary['Customers']:,}"], ['Products', f"{summary['Products']:,}"], ['Suppliers', f"{summary['Suppliers']:,}"], ['Channels', f"{summary['Channels']:,}"]]
-    table = Table(summary_data, colWidths=[200, 250])
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#667eea')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8f9fa')])]))
-    story.append(table)
-    story.append(PageBreak())
-    story.append(Paragraph("TOP 10 CUSTOMERS", section_style))
-    top_cust = customer_df.head(10)[['Customer', 'Net Sales', 'Net GP', 'Net GM %', 'Risk Flag']]
-    cust_data = [['Customer', 'Net Sales', 'Net GP', 'GM %', 'Flag']]
-    for _, row in top_cust.iterrows():
-        cust_data.append([str(row['Customer'])[:30], f"{row['Net Sales']:,.0f}", f"{row['Net GP']:,.0f}", f"{row['Net GM %']*100:.1f}%", str(row['Risk Flag'])])
-    table = Table(cust_data, colWidths=[150, 90, 90, 60, 90])
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#A23B72')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6'))]))
-    story.append(table)
-    story.append(PageBreak())
-    story.append(Paragraph("TOP 10 PRODUCTS", section_style))
-    top_prod = product_df.head(10)[['Item', 'Net Sales', 'Net GP', 'Net GM %', 'Flag', 'Recommendation']]
-    prod_data = [['Product', 'Net Sales', 'Net GP', 'GM %', 'Flag', 'Action']]
-    for _, row in top_prod.iterrows():
-        prod_data.append([str(row['Item'])[:25], f"{row['Net Sales']:,.0f}", f"{row['Net GP']:,.0f}", f"{row['Net GM %']*100:.1f}%", str(row['Flag']), str(row['Recommendation'])[:20]])
-    table = Table(prod_data, colWidths=[130, 80, 80, 50, 70, 80])
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F18F01')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6'))]))
-    story.append(table)
-    story.append(Spacer(1, 20))
-    story.append(Paragraph("CHANNEL ANALYSIS", section_style))
-    ch_data = [['Channel', 'Sales', 'Gross Profit', 'GM %', 'Share']]
-    for _, row in channel_df.iterrows():
-        ch_data.append([str(row['Channel']), f"{row['Line Sales']:,.0f}", f"{row['Gross Profit']:,.0f}", f"{row['GM %']*100:.1f}%", f"{row['Channel Dominance %']*100:.1f}%"])
-    table = Table(ch_data, colWidths=[120, 100, 100, 70, 70])
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2E86AB')), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6'))]))
-    story.append(table)
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
-
 if uploaded_file is not None:
     try:
         with st.spinner("RAB7A Engine analyzing your data..."):
@@ -264,7 +199,6 @@ if uploaded_file is not None:
             channel_df = generate_channel_profitability(df)
             salesman_df = generate_salesman_performance(df)
             pl_monthly = generate_pl_monthly(df)
-            po_df = generate_purchase_orders(df)
 
         st.success("Analysis Complete! All reports generated.")
 
@@ -282,7 +216,7 @@ if uploaded_file is not None:
             st.markdown(f'<div class="kpi-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);"><div class="kpi-label">Customers</div><div class="kpi-value">{summary["Customers"]:,}</div></div>', unsafe_allow_html=True)
 
         st.markdown('<div class="section-title">Detailed Reports</div>', unsafe_allow_html=True)
-        tabs = st.tabs(["Customers", "Products", "Suppliers", "Channels", "Salesmen", "P&L Monthly", "Purchase Orders"])
+        tabs = st.tabs(["Customers", "Products", "Suppliers", "Channels", "Salesmen", "P&L Monthly"])
 
         with tabs[0]:
             st.markdown("### Customer Profitability")
@@ -291,30 +225,6 @@ if uploaded_file is not None:
             filtered = customer_df[(customer_df['Pareto Flag'].isin(pareto_filter)) & (customer_df['Risk Flag'].isin(risk_filter))]
             display_cols = ['Customer', 'Net Sales', 'Net GP', 'Net GM %', 'Sales Rank', 'GP Rank', 'Pareto Flag', 'Risk Flag', 'Contribution %']
             st.dataframe(filtered[display_cols].style.format({'Net Sales': '{:,.2f}', 'Net GP': '{:,.2f}', 'Net GM %': '{:.1%}', 'Contribution %': '{:.1%}'}), use_container_width=True, height=500)
-            col1, col2 = st.columns(2)
-            with col1:
-                fig, ax = plt.subplots(figsize=(8, 5))
-                top10 = customer_df.head(10)
-                customers = [c[:15] + '...' if len(c) > 15 else c for c in top10['Customer']]
-                colors_bar = ['#28a745' if f == 'Top 20%' else '#ffc107' if f == 'Middle 60%' else '#dc3545' for f in top10['Pareto Flag']]
-                ax.barh(range(len(customers)), top10['Net Sales'].values, color=colors_bar)
-                ax.set_yticks(range(len(customers)))
-                ax.set_yticklabels(customers, fontsize=9)
-                ax.set_xlabel('Net Sales (QAR)')
-                ax.invert_yaxis()
-                ax.set_title('Top 10 Customers', fontweight='bold')
-                plt.tight_layout()
-                st.pyplot(fig)
-                plt.close()
-            with col2:
-                fig, ax = plt.subplots(figsize=(8, 5))
-                counts = customer_df['Pareto Flag'].value_counts()
-                colors_pie = ['#28a745', '#ffc107', '#dc3545']
-                ax.pie(counts.values, labels=counts.index, autopct='%1.1f%%', colors=colors_pie, startangle=90)
-                ax.set_title('Pareto Distribution', fontweight='bold')
-                plt.tight_layout()
-                st.pyplot(fig)
-                plt.close()
 
         with tabs[1]:
             st.markdown("### Product Profitability")
@@ -343,17 +253,9 @@ if uploaded_file is not None:
             display_cols = ['Month_Name', 'Line Sales', 'Line Cost', 'Gross Profit', 'GM %']
             st.dataframe(pl_monthly[display_cols].style.format({'Line Sales': '{:,.2f}', 'Line Cost': '{:,.2f}', 'Gross Profit': '{:,.2f}', 'GM %': '{:.1%}'}), use_container_width=True)
 
-        with tabs[6]:
-            st.markdown("### Purchase Orders")
-            display_cols = ['Supplier', 'Item', 'Qty', 'Line Cost', 'Avg Cost']
-            st.dataframe(po_df[display_cols].style.format({'Qty': '{:,.0f}', 'Line Cost': '{:,.2f}', 'Avg Cost': '{:,.2f}'}), use_container_width=True, height=500)
-
         st.markdown('<div class="section-title">Download Reports</div>', unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         with col1:
-            pdf_buffer = generate_pdf_report(summary, customer_df, product_df, supplier_df, channel_df, salesman_df)
-            st.download_button(label="Download PDF Report", data=pdf_buffer, file_name=f"RAB7A_Report_{datetime.now().strftime('%Y%m%d')}.pdf", mime="application/pdf", use_container_width=True)
-        with col2:
             def gen_excel():
                 buffer = BytesIO()
                 with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -364,13 +266,12 @@ if uploaded_file is not None:
                     channel_df.to_excel(writer, sheet_name='Channel Analysis', index=False)
                     salesman_df.to_excel(writer, sheet_name='Salesman Performance', index=False)
                     pl_monthly.to_excel(writer, sheet_name='P&L Monthly', index=False)
-                    po_df.to_excel(writer, sheet_name='Purchase Orders', index=False)
                     df.to_excel(writer, sheet_name='Raw Data', index=False)
                 buffer.seek(0)
                 return buffer
             excel_buffer = gen_excel()
             st.download_button(label="Download Excel Report", data=excel_buffer, file_name=f"RAB7A_Report_{datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-        with col3:
+        with col2:
             csv_buffer = BytesIO()
             df.to_csv(csv_buffer, index=False)
             csv_buffer.seek(0)
@@ -391,4 +292,4 @@ else:
     with col2:
         st.markdown('<div style="background: #f8f9fa; padding: 25px; border-radius: 15px; text-align: center;"><div style="font-size: 40px;">🤖</div><h3>2. Analyze</h3><p>AI Engine processes all data</p></div>', unsafe_allow_html=True)
     with col3:
-        st.markdown('<div style="background: #f8f9fa; padding: 25px; border-radius: 15px; text-align: center;"><div style="font-size: 40px;">📊</div><h3>3. Download</h3><p>Get PDF, Excel, CSV reports</p></div>', unsafe_allow_html=True)
+        st.markdown('<div style="background: #f8f9fa; padding: 25px; border-radius: 15px; text-align: center;"><div style="font-size: 40px;">📊</div><h3>3. Download</h3><p>Get Excel & CSV reports</p></div>', unsafe_allow_html=True)
